@@ -24,6 +24,23 @@
   const btnHome = document.getElementById('btnHome');
   const btnBoard2 = document.getElementById('btnBoard2');
 
+  // --- Dificultad y spawn ---
+let running = false;
+let score = 0;
+let startTime = 0;
+
+let spawnDelay = 1400;       // ms al inicio
+const minSpawnDelay = 450;   // ms mínimo
+const spawnEaseMs = 60000;   // a 60s llega a la máxima dificultad
+
+let hasPopcornAlive = false; // hay pochoclo en pantalla
+let nextSpawnAt = 0;         // timestamp para el próximo spawn programado
+
+// física base (se escala con dificultad)
+const G_BASE = 0.28;         // gravedad base
+const G_MAX_ADD = 0.32;      // cuánto puede crecer (base + add)
+
+
   // Forzar estado inicial de pantallas (por si el HTML no tiene hidden bien seteado)
 screenStart.hidden = false;
 screenBoard.hidden = true;
@@ -33,8 +50,8 @@ screenOver.hidden  = true;
 
   const SKINS = ['classic.png', 'bani-rosa.png', 'bani-violeta.png'];
 
-  let running = false;
-  let score = 0;
+ // let running = false;
+//  let score = 0;
   let playerName = localStorage.getItem('gb_player_name') || '';
   let skinName = localStorage.getItem('gb_skin') || SKINS[0];
 
@@ -104,7 +121,7 @@ screenOver.hidden  = true;
   const popcorn = { x: 0, y: 0, r: 16, vx: 0, vy: 0, caught: false };
 
   // --- Física ---
-  const G = 0.5;
+ // const G = 0.5;
   const BOUNCE_WALL = 0.98;
   const FLOOR_Y_OFFSET = 8;
 
@@ -132,19 +149,33 @@ screenOver.hidden  = true;
     bucket.x = (canvas.width - bucket.w) / 2;
     bucket.y = canvas.height - bucket.h - 20 * DPI;
   }
-  function spawnPopcorn() {
-    popcorn.x = (Math.random() * 0.7 + 0.15) * canvas.width;
-    popcorn.y = 20 * DPI;
-    popcorn.r = 14 * DPI;
-    popcorn.vx = (Math.random() < 0.5 ? -1 : 1) * (2 + Math.random() * 1.5) * DPI;
-    popcorn.vy = (0.5 + Math.random() * 0.6) * DPI;
-    popcorn.caught = false;
-  }
-  function resetGame() {
-    score = 0; scoreEl.textContent = score;
-    placeBucket();
-    spawnPopcorn();
-  }
+// Crea un pochoclo nuevo
+function spawnPopcorn() {
+  popcorn.x = (Math.random()*0.7 + 0.15) * canvas.width;
+  popcorn.y = 20 * DPI;
+  popcorn.r = 14 * DPI;
+  popcorn.vx = (Math.random()<0.5?-1:1) * (1.2 + Math.random()*0.8) * DPI; // más suave al inicio
+  popcorn.vy = 0.25 * DPI; // arranque tranquilo; la gravedad hará su trabajo
+  popcorn.caught = false;
+  hasPopcornAlive = true;
+}
+  // programa el próximo spawn según la dificultad actual
+function scheduleNextSpawn(nowTs) {
+  const t = Math.min(1, (nowTs - startTime) / spawnEaseMs); // 0..1
+  const eased = t*t; // ease-in
+  const delay = Math.max(minSpawnDelay, spawnDelay * (1 - 0.7*eased)); // reduce delay con el tiempo
+  nextSpawnAt = nowTs + delay;
+}
+  
+function resetGame() {
+  score = 0; scoreEl.textContent = score;
+  startTime = performance.now();
+  placeBucket();
+  hasPopcornAlive = false;
+  // programar primer spawn suave
+  scheduleNextSpawn(startTime + 300); // pequeño delay inicial
+}
+
 
   function intersectsBucket(ball, buck) {
     const mouthY = buck.y + 8 * DPI;
@@ -165,44 +196,74 @@ screenOver.hidden  = true;
     }, 16);
   }
 
-  function update() {
-    if (!running) return;
-    requestAnimationFrame(update);
+let lastTs = performance.now();
 
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-    ctx.strokeStyle = 'rgba(255,255,255,.06)';
-    ctx.lineWidth = 2 * DPI;
-    ctx.strokeRect(2 * DPI, 2 * DPI, canvas.width - 4 * DPI, canvas.height - 4 * DPI);
+function update(now) {
+  if(!running) return;
+  requestAnimationFrame(update);
+  const ts = now || performance.now();
+  const dt = Math.min(40, ts - lastTs); // ms cap
+  lastTs = ts;
 
-    if (pointerX != null) {
-      const target = clamp(pointerX - bucket.w / 2, 4 * DPI, canvas.width - bucket.w - 4 * DPI);
-      bucket.x += (target - bucket.x) * 0.25;
+  // dificultad 0..1 en 60s
+  const t = Math.min(1, (ts - startTime) / spawnEaseMs);
+  const eased = t*t; // ease-in
+  const G = (G_BASE + G_MAX_ADD * eased) * DPI; // gravedad crece con el tiempo
+
+  // spawn cuando toque (y no haya pochoclo activo)
+  if (!hasPopcornAlive && ts >= nextSpawnAt) {
+    spawnPopcorn();
+  }
+
+  // render base
+  ctx.clearRect(0,0,canvas.width,canvas.height);
+  ctx.strokeStyle = 'rgba(255,255,255,.06)';
+  ctx.lineWidth = 2*DPI; ctx.strokeRect(2*DPI,2*DPI, canvas.width-4*DPI, canvas.height-4*DPI);
+
+  // mover bucket
+  if(pointerX!=null){
+    const target = clamp(pointerX - bucket.w/2, 4*DPI, canvas.width - bucket.w - 4*DPI);
+    bucket.x += (target - bucket.x) * 0.25;
+  }
+
+  // física del pochoclo si está vivo
+  if (hasPopcornAlive) {
+    popcorn.vy += G * (dt/16.67);
+    popcorn.x += popcorn.vx * (dt/16.67);
+    popcorn.y += popcorn.vy * (dt/16.67);
+
+    const minX = 6*DPI + popcorn.r, maxX = canvas.width - 6*DPI - popcorn.r;
+    if(popcorn.x < minX){ popcorn.x = minX; popcorn.vx *= -0.98; }
+    if(popcorn.x > maxX){ popcorn.x = maxX; popcorn.vx *= -0.98; }
+
+    const floorY = canvas.height - 8*DPI;
+    if(popcorn.y + popcorn.r >= floorY){
+      // tocó piso: game over
+      gameOver();
+      return;
     }
 
-    popcorn.vy += G * DPI;
-    popcorn.x += popcorn.vx;
-    popcorn.y += popcorn.vy;
-
-    const minX = 6 * DPI + popcorn.r, maxX = canvas.width - 6 * DPI - popcorn.r;
-    if (popcorn.x < minX) { popcorn.x = minX; popcorn.vx *= -BOUNCE_WALL; }
-    if (popcorn.x > maxX) { popcorn.x = maxX; popcorn.vx *= -BOUNCE_WALL; }
-
-    const floorY = canvas.height - 8 * DPI;
-    if (popcorn.y + popcorn.r >= floorY) { gameOver(); return; }
-
-    if (!popcorn.caught && intersectsBucket(popcorn, bucket)) {
+    // catch
+    if(!popcorn.caught && intersectsBucket(popcorn, bucket)){
       popcorn.caught = true;
       score += 1; scoreEl.textContent = score;
       showCatchBurst(popcorn.x, bucket.y);
-      spawnPopcorn();
+
+      // ya no hay pochoclo activo; programar el próximo spawn (más seguido con el tiempo)
+      hasPopcornAlive = false;
+      scheduleNextSpawn(ts);
     }
 
+    // dibujar pochoclo
     ctx.fillStyle = '#ffe9b3';
-    ctx.beginPath(); ctx.arc(popcorn.x, popcorn.y, popcorn.r, 0, Math.PI * 2); ctx.fill();
-    ctx.strokeStyle = '#e6c77a'; ctx.lineWidth = 3 * DPI; ctx.stroke();
-
-    bucket.draw();
+    ctx.beginPath(); ctx.arc(popcorn.x, popcorn.y, popcorn.r, 0, Math.PI*2); ctx.fill();
+    ctx.strokeStyle = '#e6c77a'; ctx.lineWidth = 3*DPI; ctx.stroke();
   }
+
+  // bucket siempre visible
+  bucket.draw();
+}
+
 
   // --- Pantallas ---
   function showStart() {
@@ -219,14 +280,18 @@ screenOver.hidden  = true;
     screenBoard.hidden = false;
     loadLeaderboard();
   }
-  function showGame() {
-    screenStart.hidden = true;
-    screenBoard.hidden = true;
-    screenOver.hidden = true;
-    resetGame(); running = true;
-    requestAnimationFrame(update);
-    setTimeout(() => hintEl.style.opacity = 0, 2000);
-  }
+  
+function showGame(){
+  screenStart.hidden = true;
+  screenBoard.hidden = true;
+  screenOver.hidden  = true;
+  resetGame();
+  running = true;
+  lastTs = performance.now();
+  requestAnimationFrame(update);
+  setTimeout(()=> hintEl.style.opacity = 0, 2000);
+}
+  
   function showOver() { running = false; screenOver.hidden = false; }
 
   // --- Leaderboard ---
