@@ -32,7 +32,7 @@
   screenOver.hidden  = true;
 
   // ====== Skins del balde (archivos en /skins/) ======
-  const SKINS = ['GBFilms.png', 'BANIVFX.png', 'Elcondenado.png', 'Rendering.png', 'Eldientenegro.png', 'Cucaracha.png'];
+  const SKINS = ['GB_Films.png', 'BANI_VFX.png', 'El_Condenado.png', 'Rendering.png', 'El_Diente_Negro.png', 'Cucaracha.png'];
 
   // ====== Juego / dificultad / spawn ======
   let running = false;
