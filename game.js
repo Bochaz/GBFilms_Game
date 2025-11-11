@@ -188,9 +188,11 @@ function resetGame() {
     const p = { x, y, r: 2 * DPI, t: 0 };
     const id = setInterval(() => {
       const fade = Math.max(0, 1 - p.t / 12);
-      ctx.save(); ctx.globalAlpha = fade;
+      ctx.save(); 
+      ctx.globalAlpha = fade;
       ctx.fillStyle = '#ffd782';
-      ctx.beginPath(); ctx.arc(p.x, p.y, p.r + p.t, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.arc(p.x, p.y, p.r + p.t, 0, Math.PI * 2); 
+      ctx.fill();
       ctx.restore();
       p.t++; if (fade <= 0) clearInterval(id);
     }, 16);
@@ -254,10 +256,26 @@ function update(now) {
       scheduleNextSpawn(ts);
     }
 
-    // dibujar pochoclo
-    ctx.fillStyle = '#ffe9b3';
-    ctx.beginPath(); ctx.arc(popcorn.x, popcorn.y, popcorn.r, 0, Math.PI*2); ctx.fill();
-    ctx.strokeStyle = '#e6c77a'; ctx.lineWidth = 3*DPI; ctx.stroke();
+      // dibujar pochoclo (usando imagen si existe)
+      if (!window.popcornImg) {
+        window.popcornImg = new Image();
+        window.popcornImg.src = "skins/Pochoclo.png";
+      }
+      
+      if (window.popcornImg.complete && window.popcornImg.naturalWidth > 0) {
+        const size = popcorn.r * 2;
+        ctx.drawImage(window.popcornImg, popcorn.x - popcorn.r, popcorn.y - popcorn.r, size, size);
+      } else {
+        // fallback: círculo si la imagen no cargó aún
+        ctx.fillStyle = '#ffe9b3';
+        ctx.beginPath();
+        ctx.arc(popcorn.x, popcorn.y, popcorn.r, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.strokeStyle = '#e6c77a';
+        ctx.lineWidth = 3 * DPI;
+        ctx.stroke();
+      }
+
   }
 
   // bucket siempre visible
