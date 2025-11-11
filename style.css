@@ -138,3 +138,10 @@ input[type="text"], select, .btn {
 /* MUY IMPORTANTE: que [hidden] realmente oculte */
 [hidden] { display: none !important; }
 
+.btn:disabled {
+  opacity: .5;
+  cursor: not-allowed;
+  box-shadow: none;
+  filter: grayscale(30%);
+}
+
