@@ -48,7 +48,7 @@ screenOver.hidden  = true;
 
   const boardTableBody = document.querySelector('#boardTable tbody');
 
-  const SKINS = ['classic.png', 'bani-rosa.png', 'bani-violeta.png'];
+  const SKINS = ['GBFilms.png', 'BANIVFX.png', 'Elcondenado.png','Rendering.png', 'Eldientenegro.png', 'Cucaracha.png'];
 
  // let running = false;
 //  let score = 0;
