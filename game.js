@@ -30,15 +30,15 @@ let score = 0;
 let startTime = 0;
 
 let spawnDelay = 1400;       // ms al inicio
-const minSpawnDelay = 450;   // ms mínimo
+const minSpawnDelay = 350;   // ms mínimo
 const spawnEaseMs = 60000;   // a 60s llega a la máxima dificultad
 
 let hasPopcornAlive = false; // hay pochoclo en pantalla
 let nextSpawnAt = 0;         // timestamp para el próximo spawn programado
 
 // física base (se escala con dificultad)
-const G_BASE = 0.28;         // gravedad base
-const G_MAX_ADD = 0.32;      // cuánto puede crecer (base + add)
+const G_BASE = 0.32;         // gravedad base
+const G_MAX_ADD = 0.4;      // cuánto puede crecer (base + add)
 
 
   // Forzar estado inicial de pantallas (por si el HTML no tiene hidden bien seteado)
@@ -154,8 +154,8 @@ function spawnPopcorn() {
   popcorn.x = (Math.random()*0.7 + 0.15) * canvas.width;
   popcorn.y = 20 * DPI;
   popcorn.r = 14 * DPI;
-  popcorn.vx = (Math.random()<0.5?-1:1) * (1.2 + Math.random()*0.8) * DPI; // más suave al inicio
-  popcorn.vy = 0.25 * DPI; // arranque tranquilo; la gravedad hará su trabajo
+  popcorn.vx = (Math.random()<0.5?-1:1) * (1.3 + Math.random()*0.8) * DPI; // más suave al inicio
+  popcorn.vy = 0.35 * DPI; // arranque tranquilo; la gravedad hará su trabajo
   popcorn.caught = false;
   hasPopcornAlive = true;
 }
@@ -163,7 +163,7 @@ function spawnPopcorn() {
 function scheduleNextSpawn(nowTs) {
   const t = Math.min(1, (nowTs - startTime) / spawnEaseMs); // 0..1
   const eased = t*t; // ease-in
-  const delay = Math.max(minSpawnDelay, spawnDelay * (1 - 0.7*eased)); // reduce delay con el tiempo
+  const delay = Math.max(minSpawnDelay, spawnDelay * (1 - 0.85*eased)); // reduce delay con el tiempo
   nextSpawnAt = nowTs + delay;
 }
   
