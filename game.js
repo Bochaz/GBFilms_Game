@@ -23,6 +23,12 @@
   const btnReplay = document.getElementById('btnReplay');
   const btnHome = document.getElementById('btnHome');
   const btnBoard2 = document.getElementById('btnBoard2');
+
+  // Forzar estado inicial de pantallas (por si el HTML no tiene hidden bien seteado)
+screenStart.hidden = false;
+screenBoard.hidden = true;
+screenOver.hidden  = true;
+
   const boardTableBody = document.querySelector('#boardTable tbody');
 
   const SKINS = ['classic.png', 'bani-rosa.png', 'bani-violeta.png'];
