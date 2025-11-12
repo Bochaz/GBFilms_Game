@@ -159,7 +159,7 @@
       caught: false,
       dead: false
     };
-    const vxBase = 1.3 + Math.random()*0.8;
+    const vxBase = 1.3 + Math.random()*2;
     const vxBoost = 1 + Math.min(0.35, 0.08 * Math.log1p(tSec)); // hasta +35%
     p.vx = (Math.random()<0.5?-1:1) * (vxBase * vxBoost) * DPI;
     p.vy = 0.35 * DPI;
