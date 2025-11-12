@@ -154,7 +154,7 @@
     const vxBoost = 1 + Math.min(0.35, 0.08 * Math.log1p(tSec)); // hasta +35%
     popcorn.vx = (Math.random()<0.5?-1:1) * (vxBase * vxBoost) * DPI;
 
-    popcorn.vy = 0.35 * DPI; // arranque suave; la gravedad hará lo suyo
+    popcorn.vy = 0.35 * DPI * tSec; // arranque suave; la gravedad hará lo suyo
     popcorn.caught = false;
     hasPopcornAlive = true;
   }
