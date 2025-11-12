@@ -442,6 +442,10 @@
 
   async function gameOver() {
     finalScoreEl.textContent = score;
+  
+    // limpiar inmediatamente el canvas para que no quede “la tapa” a la vista
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+  
     showOver();
     try {
       await saveScore(playerName, score);
@@ -453,6 +457,7 @@
       saveStatusEl.style.color = '#ff9b9b';
     }
   }
+
 
   // Init
   showStart();
