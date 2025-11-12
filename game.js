@@ -32,7 +32,7 @@
   show(screenStart); hide(screenBoard); hide(screenOver);
 
   // ====== Skins del balde ======
-  const SKINS = ['GBFilms.png', 'BANIVFX.png', 'Elcondenado.png','Rendering.png', 'Eldientenegro.png', 'Cucaracha.png'];
+  const SKINS = ['GB_Films.png', 'BANI_VFX.png', 'El_Condenado.png','Rendering.png', 'El_Diente_Negro.png', 'Cucaracha.png'];
 
   // ====== Juego / dificultad continua ======
   let running = false;
@@ -159,7 +159,7 @@
       caught: false,
       dead: false
     };
-    const vxBase = 1.3 + Math.random()*2;
+    const vxBase = 2 + Math.random()*6;
     const vxBoost = 1 + Math.min(0.35, 0.08 * Math.log1p(tSec)); // hasta +35%
     p.vx = (Math.random()<0.5?-1:1) * (vxBase * vxBoost) * DPI;
     p.vy = 0.35 * DPI;
