@@ -176,7 +176,7 @@
 
   // Colisión rectangular (boca bottom = y + h/8)
   function intersectsBucket(ball, buck, frameFactor) {
-    const mouthBottomY = buck.y + buck.h * 0.125; // 1/8 desde arriba
+    const mouthBottomY = buck.y + buck.h * 0.25; // 1/8 desde arriba
     const bandH = Math.max(BASE_CATCH_H, Math.abs(ball.vy) * frameFactor * CATCH_VY_SCALE);
     const ry = mouthBottomY - bandH;
 
