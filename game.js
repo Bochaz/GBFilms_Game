@@ -334,13 +334,63 @@
     }
   }
 
+  // util
+  const sleep = (ms)=> new Promise(r => setTimeout(r, ms));
+  
   async function saveScore(name, score) {
-    const data = await jsonbinRead();
-    const scores = (data && data.scores) ? data.scores : [];
-    scores.push({ name, score, ts: Date.now() });
-    while (scores.length > 200) scores.shift();
-    await jsonbinWrite({ scores });
+    const MAX_RETRIES = 5;
+    let attempt = 0;
+  
+    // Pequeño jitter aleatorio para desincronizar avalanchas
+    await sleep(Math.random() * 250);
+  
+    while (attempt < MAX_RETRIES) {
+      attempt++;
+  
+      // 1) Leer lo último
+      let data;
+      try {
+        data = await jsonbinRead();
+      } catch (e) {
+        if (attempt === MAX_RETRIES) throw e;
+        await sleep(200 * attempt);
+        continue;
+      }
+  
+      // 2) Merge: añadí el nuevo score sin perder los existentes
+      const existing = Array.isArray(data?.scores) ? data.scores.slice() : [];
+      existing.push({ name, score, ts: Date.now() });
+  
+      // 3) Recortar para no crecer infinito (ej: 1000 últimos)
+      while (existing.length > 1000) existing.shift();
+  
+      // 4) Intentar escribir
+      try {
+        await jsonbinWrite({ scores: existing });
+      } catch (e) {
+        // fallo al escribir: backoff y reintento
+        if (attempt === MAX_RETRIES) throw e;
+        await sleep(250 * attempt);
+        continue;
+      }
+  
+      // 5) Verificación: re-leer y chequear que nuestro score quedó
+      try {
+        const verify = await jsonbinRead();
+        const ok = Array.isArray(verify?.scores) &&
+                   verify.scores.some(s => s.name === name && s.score === score);
+        if (ok) return; // éxito
+  
+        // Si no quedó, backoff y reintento (hará otro merge con lo más nuevo)
+        if (attempt === MAX_RETRIES) throw new Error('Race write lost after retries');
+        await sleep(300 * attempt);
+      } catch (e) {
+        if (attempt === MAX_RETRIES) throw e;
+        await sleep(300 * attempt);
+      }
+    }
   }
+
 
   // ====== Validación nombre + skin ======
   function isFormValid() {
