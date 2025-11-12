@@ -26,12 +26,12 @@
 
   const boardTableBody = document.querySelector('#boardTable tbody');
 
-  // ====== Estado inicial de pantallas (failsafe) ======
+  // ====== Estado de pantallas (failsafe) ======
   function show(el){ el.hidden=false; el.style.display='grid'; }
   function hide(el){ el.hidden=true;  el.style.display='none'; }
   show(screenStart); hide(screenBoard); hide(screenOver);
 
-  // ====== Skins del balde (archivos en /skins/) ======
+  // ====== Skins del balde ======
   const SKINS = ['GBFilms.png', 'BANIVFX.png', 'Elcondenado.png','Rendering.png', 'Eldientenegro.png', 'Cucaracha.png'];
 
   // ====== Juego / dificultad continua ======
@@ -39,13 +39,17 @@
   let score = 0;
   let startTime = 0;
 
-  let spawnDelay0 = 1400;        // delay base inicial (ms)
-  const minSpawnDelayHardFloor = 120; // piso durísimo para no ir a 0 ms
-  const SPAWN_ACCEL = 0.035;     // aceleración exponencial del spawn (por segundo). ↑ para más dificultad
-  const G_BASE = 0.32;           // gravedad base
-  const G_GROW_RATE = 0.006;     // cuánto crece la gravedad por segundo. ↑ para más dificultad
+  // Spawning continuo (cada vez más seguido)
+  let spawnDelay0 = 1400;             // delay base inicial (ms)
+  const minSpawnDelayHardFloor = 120; // piso durísimo
+  const SPAWN_ACCEL = 0.035;          // ↑ para acelerar más rápido
 
-  let hasPopcornAlive = false;
+  // Gravedad creciente sin tope
+  const G_BASE = 0.32;
+  const G_GROW_RATE = 0.006;          // ↑ para caer más rápido con el tiempo
+
+  // Múltiples pochoclos simultáneos
+  let popcorns = [];
   let nextSpawnAt = 0;
 
   // ====== Preferencias usuario ======
@@ -113,7 +117,11 @@
   }
   if (skinName) loadBucketSkin(skinName);
 
-  const popcorn = { x: 0, y: 0, r: 16, vx: 0, vy: 0, caught: false };
+  // Imagen del pochoclo
+  if (!window.popcornImg) {
+    window.popcornImg = new Image();
+    window.popcornImg.src = "skins/Pochoclo.png";
+  }
 
   // ====== Input ======
   let pointerX = null, holding = false;
@@ -140,29 +148,26 @@
     bucket.y = canvas.height - bucket.h - 20 * DPI;
   }
 
-  // Crea un pochoclo nuevo
-  function spawnPopcorn() {
-    // dificultad actual en segundos desde start
-    const tSec = Math.max(0, (performance.now() - startTime) / 1000);
-
-    popcorn.x = (Math.random()*0.7 + 0.15) * canvas.width;
-    popcorn.y = 20 * DPI;
-    popcorn.r = 14 * DPI;
-
-    // velocidad horizontal aumenta levemente con el tiempo
+  function newPopcorn(ts) {
+    const tSec = Math.max(0, (ts - startTime) / 1000);
+    const p = {
+      x: (Math.random()*0.7 + 0.15) * canvas.width,
+      y: 20 * DPI,
+      r: 14 * DPI,
+      vx: 0,
+      vy: 0,
+      caught: false,
+      dead: false
+    };
     const vxBase = 1.3 + Math.random()*0.8;
     const vxBoost = 1 + Math.min(0.35, 0.08 * Math.log1p(tSec)); // hasta +35%
-    popcorn.vx = (Math.random()<0.5?-1:1) * (vxBase * vxBoost) * DPI;
-
-    popcorn.vy = 0.35 * DPI * tSec; // arranque suave; la gravedad hará lo suyo
-    popcorn.caught = false;
-    hasPopcornAlive = true;
+    p.vx = (Math.random()<0.5?-1:1) * (vxBase * vxBoost) * DPI;
+    p.vy = 0.35 * DPI;
+    return p;
   }
 
-  // Próximo spawn con aceleración exponencial continua
   function scheduleNextSpawn(nowTs) {
     const tSec = Math.max(0, (nowTs - startTime) / 1000);
-    // delay = delay0 * e^(-a*t) con piso hard
     const delay = Math.max(minSpawnDelayHardFloor, spawnDelay0 * Math.exp(-SPAWN_ACCEL * tSec));
     nextSpawnAt = nowTs + delay;
   }
@@ -171,8 +176,8 @@
     score = 0; scoreEl.textContent = score;
     startTime = performance.now();
     placeBucket();
-    hasPopcornAlive = false;
-    scheduleNextSpawn(startTime + 300); // primer spawn suave tras 0.3s
+    popcorns = [];
+    scheduleNextSpawn(startTime + 300); // primer spawn suave
   }
 
   function intersectsBucket(ball, buck) {
@@ -200,79 +205,82 @@
     if(!running) return;
     requestAnimationFrame(update);
     const ts = now || performance.now();
-    const dt = Math.min(40, ts - lastTs); // ms cap para estabilidad
+    const dt = Math.min(40, ts - lastTs);
     lastTs = ts;
 
-    // dificultad continua
+    // Dificultad continua
     const tSec = Math.max(0, (ts - startTime) / 1000);
-    const G = (G_BASE + G_GROW_RATE * tSec) * DPI; // crece sin tope
+    const G = (G_BASE + G_GROW_RATE * tSec) * DPI;
 
-    // spawn cuando toque (y no haya pochoclo activo)
-    if (!hasPopcornAlive && ts >= nextSpawnAt) {
-      spawnPopcorn();
+    // Spawning continuo (puede haber muchos simultáneos)
+    if (ts >= nextSpawnAt) {
+      popcorns.push(newPopcorn(ts));
+      scheduleNextSpawn(ts);
+      // Si querés rigor ante frames largos, podés repetir spawn en un while con límite
+      // for (let i=0;i<3 && ts>=nextSpawnAt;i++){ popcorns.push(newPopcorn(ts)); scheduleNextSpawn(ts); }
     }
 
-    // render base
+    // Render base
     ctx.clearRect(0,0,canvas.width,canvas.height);
     ctx.strokeStyle = 'rgba(255,255,255,.06)';
     ctx.lineWidth = 2*DPI; ctx.strokeRect(2*DPI,2*DPI, canvas.width-4*DPI, canvas.height-4*DPI);
 
-    // mover bucket
+    // Mover bucket
     if(pointerX!=null){
       const target = clamp(pointerX - bucket.w/2, 4*DPI, canvas.width - bucket.w - 4*DPI);
       bucket.x += (target - bucket.x) * 0.25;
     }
 
-    // física del pochoclo si está vivo
-    if (hasPopcornAlive) {
-      const f = (dt/16.67);
-      popcorn.vy += G * f;
-      popcorn.x  += popcorn.vx * f;
-      popcorn.y  += popcorn.vy * f;
+    const f = (dt/16.67);
+    const minX = 6*DPI;
+    const maxX = canvas.width - 6*DPI;
+    const floorY = canvas.height - 8*DPI;
 
-      const minX = 6*DPI + popcorn.r, maxX = canvas.width - 6*DPI - popcorn.r;
-      if(popcorn.x < minX){ popcorn.x = minX; popcorn.vx *= -0.98; }
-      if(popcorn.x > maxX){ popcorn.x = maxX; popcorn.vx *= -0.98; }
+    // Actualizar y dibujar cada pochoclo
+    for (let p of popcorns) {
+      if (p.dead) continue;
 
-      const floorY = canvas.height - 8*DPI;
-      if(popcorn.y + popcorn.r >= floorY){
-        // tocó piso: game over
+      p.vy += G * f;
+      p.x  += p.vx * f;
+      p.y  += p.vy * f;
+
+      // paredes
+      const leftBound  = minX + p.r;
+      const rightBound = maxX - p.r;
+      if(p.x < leftBound){ p.x = leftBound; p.vx *= -0.98; }
+      if(p.x > rightBound){ p.x = rightBound; p.vx *= -0.98; }
+
+      // piso => game over
+      if(p.y + p.r >= floorY){
         gameOver();
         return;
       }
 
       // catch
-      if(!popcorn.caught && intersectsBucket(popcorn, bucket)){
-        popcorn.caught = true;
+      if(!p.caught && intersectsBucket(p, bucket)){
+        p.caught = true;
+        p.dead = true;
         score += 1; scoreEl.textContent = score;
-        showCatchBurst(popcorn.x, bucket.y);
-
-        // ya no hay pochoclo activo; programar el próximo
-        hasPopcornAlive = false;
-        scheduleNextSpawn(ts);
+        showCatchBurst(p.x, bucket.y);
       }
 
-      // dibujar pochoclo (imagen si existe)
-      if (!window.popcornImg) {
-        window.popcornImg = new Image();
-        window.popcornImg.src = "skins/Pochoclo.png";
-      }
+      // dibujar (imagen si carga, si no círculo)
       if (window.popcornImg.complete && window.popcornImg.naturalWidth > 0) {
-        const size = popcorn.r * 2;
-        ctx.drawImage(window.popcornImg, popcorn.x - popcorn.r, popcorn.y - popcorn.r, size, size);
+        const size = p.r * 2;
+        ctx.drawImage(window.popcornImg, p.x - p.r, p.y - p.r, size, size);
       } else {
-        // fallback: círculo
         ctx.fillStyle = '#ffe9b3';
-        ctx.beginPath();
-        ctx.arc(popcorn.x, popcorn.y, popcorn.r, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.strokeStyle = '#e6c77a';
-        ctx.lineWidth = 3 * DPI;
-        ctx.stroke();
+        ctx.beginPath(); ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2); ctx.fill();
+        ctx.strokeStyle = '#e6c77a'; ctx.lineWidth = 3 * DPI; ctx.stroke();
       }
     }
 
-    // bucket siempre visible
+    // limpiar pochoclos “muertos”
+    if (popcorns.length && (popcorns.length > 50 || (tSec>10 && popcorns.length>0))) {
+      popcorns = popcorns.filter(p => !p.dead);
+    }
+
+    // bucket on top
     bucket.draw();
   }
 
@@ -322,7 +330,6 @@
   // ====== UI ======
   function populateSkins() {
     skinSelect.innerHTML = '';
-
     const ph = document.createElement('option');
     ph.value = '';
     ph.textContent = 'Elegí un skin…';
@@ -369,7 +376,7 @@
   btnHome.addEventListener('click', showStart);
   btnBoard2.addEventListener('click', showBoard);
 
-  // ====== Flow de pantallas (con failsafe display) ======
+  // ====== Flow de pantallas ======
   function showStart() {
     running = false;
     hide(screenOver);
@@ -405,7 +412,7 @@
   // ====== Game over ======
   async function gameOver() {
     finalScoreEl.textContent = score;
-    showOver(); // mostrar inmediatamente
+    showOver();
     try {
       await saveScore(playerName, score);
       saveStatusEl.textContent = 'Puntaje guardado correctamente.';
