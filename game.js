@@ -9,11 +9,11 @@
   const scoreEl = document.getElementById('score');
   const screenStart = document.getElementById('screen-start');
   const screenBoard = document.getElementById('screen-board');
-  const screenOver = document.getElementById('screen-over');
+  const screenOver  = document.getElementById('screen-over');
   const finalScoreEl = document.getElementById('finalScore');
   const saveStatusEl = document.getElementById('saveStatus');
   const toastEl = document.getElementById('toast');
-  const hintEl = document.getElementById('hint');
+  const hintEl  = document.getElementById('hint');
 
   const playerNameInput = document.getElementById('playerName');
   const skinSelect = document.getElementById('skinSelect');
@@ -26,33 +26,31 @@
 
   const boardTableBody = document.querySelector('#boardTable tbody');
 
-  // ====== Estado de pantallas (por si el CSS pisa [hidden]) ======
-  screenStart.hidden = false;
-  screenBoard.hidden = true;
-  screenOver.hidden  = true;
+  // ====== Estado inicial de pantallas (failsafe) ======
+  function show(el){ el.hidden=false; el.style.display='grid'; }
+  function hide(el){ el.hidden=true;  el.style.display='none'; }
+  show(screenStart); hide(screenBoard); hide(screenOver);
 
   // ====== Skins del balde (archivos en /skins/) ======
-  const SKINS = ['GB_Films.png', 'BANI_VFX.png', 'El_Condenado.png', 'Rendering.png', 'El_Diente_Negro.png', 'Cucaracha.png'];
+  const SKINS = ['GBFilms.png', 'BANIVFX.png', 'Elcondenado.png','Rendering.png', 'Eldientenegro.png', 'Cucaracha.png'];
 
-  // ====== Juego / dificultad / spawn ======
+  // ====== Juego / dificultad continua ======
   let running = false;
   let score = 0;
   let startTime = 0;
 
-  let spawnDelay = 1400;          // ms al inicio
-  const minSpawnDelay = 350;      // ms mínimo
-  const spawnEaseMs  = 60000;     // 60s hasta máxima dificultad (bajalo para acelerar)
+  let spawnDelay0 = 1400;        // delay base inicial (ms)
+  const minSpawnDelayHardFloor = 120; // piso durísimo para no ir a 0 ms
+  const SPAWN_ACCEL = 0.035;     // aceleración exponencial del spawn (por segundo). ↑ para más dificultad
+  const G_BASE = 0.32;           // gravedad base
+  const G_GROW_RATE = 0.006;     // cuánto crece la gravedad por segundo. ↑ para más dificultad
 
-  let hasPopcornAlive = false;    // hay pochoclo activo
-  let nextSpawnAt = 0;            // timestamp del próximo spawn
-
-  // física base (se escala con dificultad)
-  const G_BASE    = 0.32;         // gravedad base
-  const G_MAX_ADD = 0.40;         // cuánto crece con la dificultad
+  let hasPopcornAlive = false;
+  let nextSpawnAt = 0;
 
   // ====== Preferencias usuario ======
   let playerName = (localStorage.getItem('gb_player_name') || '').trim();
-  let skinName   = localStorage.getItem('gb_skin') || ''; // ← sin skin por defecto
+  let skinName   = localStorage.getItem('gb_skin') || ''; // sin skin por defecto
 
   // ====== Canvas scaling ======
   function fitCanvas() {
@@ -64,9 +62,7 @@
   addEventListener('resize', fitCanvas);
 
   // ====== Utils ======
-  function clamp(v, min, max) {
-    return Math.max(min, Math.min(max, v));
-  }
+  function clamp(v, min, max) { return Math.max(min, Math.min(max, v)); }
   function escapeHtml(s) {
     return String(s).replace(/[&<>\"']/g, m => ({
       "&": "&amp;", "<": "&lt;", ">": "&gt;", "\"": "&quot;", "'": "&#39;"
@@ -115,7 +111,6 @@
     img.onload = () => bucket.img = img;
     img.onerror = () => bucket.img = null;
   }
-  // Cargar skin SOLO si había una guardada
   if (skinName) loadBucketSkin(skinName);
 
   const popcorn = { x: 0, y: 0, r: 16, vx: 0, vy: 0, caught: false };
@@ -147,20 +142,28 @@
 
   // Crea un pochoclo nuevo
   function spawnPopcorn() {
+    // dificultad actual en segundos desde start
+    const tSec = Math.max(0, (performance.now() - startTime) / 1000);
+
     popcorn.x = (Math.random()*0.7 + 0.15) * canvas.width;
     popcorn.y = 20 * DPI;
     popcorn.r = 14 * DPI;
-    popcorn.vx = (Math.random()<0.5?-1:1) * (1.3 + Math.random()*0.8) * DPI; // suave al inicio
-    popcorn.vy = 0.35 * DPI; // arranque tranquilo; la gravedad hará su trabajo
+
+    // velocidad horizontal aumenta levemente con el tiempo
+    const vxBase = 1.3 + Math.random()*0.8;
+    const vxBoost = 1 + Math.min(0.35, 0.08 * Math.log1p(tSec)); // hasta +35%
+    popcorn.vx = (Math.random()<0.5?-1:1) * (vxBase * vxBoost) * DPI;
+
+    popcorn.vy = 0.35 * DPI; // arranque suave; la gravedad hará lo suyo
     popcorn.caught = false;
     hasPopcornAlive = true;
   }
 
-  // programa el próximo spawn según la dificultad actual
+  // Próximo spawn con aceleración exponencial continua
   function scheduleNextSpawn(nowTs) {
-    const t = Math.min(1, (nowTs - startTime) / spawnEaseMs); // 0..1
-    const eased = t * t; // ease-in
-    const delay = Math.max(minSpawnDelay, spawnDelay * (1 - 0.85 * eased)); // reduce delay con el tiempo
+    const tSec = Math.max(0, (nowTs - startTime) / 1000);
+    // delay = delay0 * e^(-a*t) con piso hard
+    const delay = Math.max(minSpawnDelayHardFloor, spawnDelay0 * Math.exp(-SPAWN_ACCEL * tSec));
     nextSpawnAt = nowTs + delay;
   }
 
@@ -169,8 +172,7 @@
     startTime = performance.now();
     placeBucket();
     hasPopcornAlive = false;
-    // primer spawn con pequeño delay
-    scheduleNextSpawn(startTime + 300);
+    scheduleNextSpawn(startTime + 300); // primer spawn suave tras 0.3s
   }
 
   function intersectsBucket(ball, buck) {
@@ -184,8 +186,7 @@
     const p = { x, y, r: 2 * DPI, t: 0 };
     const id = setInterval(() => {
       const fade = Math.max(0, 1 - p.t / 12);
-      ctx.save();
-      ctx.globalAlpha = fade;
+      ctx.save(); ctx.globalAlpha = fade;
       ctx.fillStyle = '#ffd782';
       ctx.beginPath(); ctx.arc(p.x, p.y, p.r + p.t, 0, Math.PI * 2); ctx.fill();
       ctx.restore();
@@ -199,13 +200,12 @@
     if(!running) return;
     requestAnimationFrame(update);
     const ts = now || performance.now();
-    const dt = Math.min(40, ts - lastTs); // ms cap
+    const dt = Math.min(40, ts - lastTs); // ms cap para estabilidad
     lastTs = ts;
 
-    // dificultad 0..1
-    const t = Math.min(1, (ts - startTime) / spawnEaseMs);
-    const eased = t * t; // ease-in
-    const G = (G_BASE + G_MAX_ADD * eased) * DPI; // gravedad crece con el tiempo
+    // dificultad continua
+    const tSec = Math.max(0, (ts - startTime) / 1000);
+    const G = (G_BASE + G_GROW_RATE * tSec) * DPI; // crece sin tope
 
     // spawn cuando toque (y no haya pochoclo activo)
     if (!hasPopcornAlive && ts >= nextSpawnAt) {
@@ -225,9 +225,10 @@
 
     // física del pochoclo si está vivo
     if (hasPopcornAlive) {
-      popcorn.vy += G * (dt/16.67);
-      popcorn.x  += popcorn.vx * (dt/16.67);
-      popcorn.y  += popcorn.vy * (dt/16.67);
+      const f = (dt/16.67);
+      popcorn.vy += G * f;
+      popcorn.x  += popcorn.vx * f;
+      popcorn.y  += popcorn.vy * f;
 
       const minX = 6*DPI + popcorn.r, maxX = canvas.width - 6*DPI - popcorn.r;
       if(popcorn.x < minX){ popcorn.x = minX; popcorn.vx *= -0.98; }
@@ -246,12 +247,12 @@
         score += 1; scoreEl.textContent = score;
         showCatchBurst(popcorn.x, bucket.y);
 
-        // ya no hay pochoclo activo; programar el próximo spawn (más seguido con el tiempo)
+        // ya no hay pochoclo activo; programar el próximo
         hasPopcornAlive = false;
         scheduleNextSpawn(ts);
       }
 
-      // dibujar pochoclo (usando imagen si existe)
+      // dibujar pochoclo (imagen si existe)
       if (!window.popcornImg) {
         window.popcornImg = new Image();
         window.popcornImg.src = "skins/Pochoclo.png";
@@ -260,7 +261,7 @@
         const size = popcorn.r * 2;
         ctx.drawImage(window.popcornImg, popcorn.x - popcorn.r, popcorn.y - popcorn.r, size, size);
       } else {
-        // fallback: círculo si la imagen no cargó aún
+        // fallback: círculo
         ctx.fillStyle = '#ffe9b3';
         ctx.beginPath();
         ctx.arc(popcorn.x, popcorn.y, popcorn.r, 0, Math.PI * 2);
@@ -308,10 +309,10 @@
     await jsonbinWrite({ scores });
   }
 
-  // ====== Form: validación nombre + skin ======
+  // ====== Validación nombre + skin ======
   function isFormValid() {
     const nameOk = (playerNameInput.value.trim().length >= 1);
-    const skinOk = (skinSelect.value && skinSelect.value.length > 0);
+    const skinOk  = (skinSelect.value && skinSelect.value.length > 0);
     return nameOk && skinOk;
   }
   function updatePlayEnabled() {
@@ -322,29 +323,25 @@
   function populateSkins() {
     skinSelect.innerHTML = '';
 
-    // Placeholder (no seleccionable para jugar)
     const ph = document.createElement('option');
     ph.value = '';
     ph.textContent = 'Elegí un skin…';
     ph.disabled = true;
-    ph.selected = !skinName;         // seleccionado si no hay skin previa
+    ph.selected = !skinName;
     skinSelect.appendChild(ph);
 
-    // Opciones reales (sin ".png")
     SKINS.forEach(n => {
       const opt = document.createElement('option');
       opt.value = n;
-      opt.textContent = n.replace(/\.png$/i, ''); // ← sin extensión
+      opt.textContent = n.replace(/\.png$/i, '');
       if (n === skinName) opt.selected = true;
       skinSelect.appendChild(opt);
     });
   }
   populateSkins();
 
-  // setear nombre guardado (si había)
   playerNameInput.value = playerName;
 
-  // Eventos inputs
   playerNameInput.addEventListener('input', () => {
     playerName = playerNameInput.value.trim();
     updatePlayEnabled();
@@ -356,7 +353,6 @@
     updatePlayEnabled();
   });
 
-  // Botones
   btnPlay.addEventListener('click', () => {
     if (!isFormValid()) {
       showToast('Completá tu nombre y elegí una skin.');
@@ -373,33 +369,53 @@
   btnHome.addEventListener('click', showStart);
   btnBoard2.addEventListener('click', showBoard);
 
-  // ====== Flow de pantallas ======
+  // ====== Flow de pantallas (con failsafe display) ======
   function showStart() {
     running = false;
-    screenOver.hidden = true;
-    screenBoard.hidden = true;
-    screenStart.hidden = false;
+    hide(screenOver);
+    hide(screenBoard);
+    show(screenStart);
     hintEl.style.opacity = 0.7;
     updatePlayEnabled();
   }
   function showBoard() {
     running = false;
-    screenStart.hidden = true;
-    screenOver.hidden = true;
-    screenBoard.hidden = false;
+    hide(screenStart);
+    hide(screenOver);
+    show(screenBoard);
     loadLeaderboard();
   }
   function showGame(){
-    screenStart.hidden = true;
-    screenBoard.hidden = true;
-    screenOver.hidden  = true;
+    hide(screenStart);
+    hide(screenBoard);
+    hide(screenOver);
     resetGame();
     running = true;
     lastTs = performance.now();
     requestAnimationFrame(update);
     setTimeout(()=> hintEl.style.opacity = 0, 2000);
   }
-  function showOver() { running = false; screenOver.hidden = false; }
+  function showOver() { 
+    running = false; 
+    hide(screenStart);
+    hide(screenBoard);
+    show(screenOver);
+  }
+
+  // ====== Game over ======
+  async function gameOver() {
+    finalScoreEl.textContent = score;
+    showOver(); // mostrar inmediatamente
+    try {
+      await saveScore(playerName, score);
+      saveStatusEl.textContent = 'Puntaje guardado correctamente.';
+      saveStatusEl.style.color = '#b6f0c0';
+    } catch (err) {
+      console.error(err);
+      saveStatusEl.textContent = 'No se pudo guardar el puntaje (revisa JSONBin).';
+      saveStatusEl.style.color = '#ff9b9b';
+    }
+  }
 
   // ====== Init ======
   showStart();
