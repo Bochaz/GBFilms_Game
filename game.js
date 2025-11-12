@@ -24,13 +24,21 @@
   const btnHome = document.getElementById('btnHome');
   const btnBoard2 = document.getElementById('btnBoard2');
 
-    // Colisión perdonadora (ajustables)
+  // Colisión perdonadora (ajustables)
   const CATCH_MARGIN_X = 12 * DPI;   // tolerancia horizontal extra
-  const MOUTH_OFFSET   = 6  * DPI;   // altura de la "boca" según tu PNG del balde
   const BASE_CATCH_BAND = 18 * DPI;  // grosor mínimo de la banda de captura
-  const CATCH_VY_SCALE  = 1.3;       // cuánto crece la banda con la velocidad
 
+  // ===== Colisión cuadrada y rendering en capas =====
+  const MOUTH_OFFSET     = 10 * DPI;   // desde el top del balde hasta la “boca”
+  const CATCH_INSET_X    = 8  * DPI;   // achica un poco el ancho para que coincida con la abertura
+  
+  const BASE_CATCH_H     = 22 * DPI;   // alto mínimo de la banda de captura
+  const CATCH_VY_SCALE   = 1.2;        // aumenta la banda según velocidad vertical (anti-tunneling)
+  
+  // Imagen trasera por defecto si no hay una específica para la skin
+  const DEFAULT_BACK_IMAGE = 'bucket-back.png'; // poné este PNG en /skins si querés fallback
 
+  
   const boardTableBody = document.querySelector('#boardTable tbody');
 
   // ====== Estado de pantallas (failsafe) ======
@@ -39,7 +47,7 @@
   show(screenStart); hide(screenBoard); hide(screenOver);
 
   // ====== Skins del balde ======
-  const SKINS = ['GB_Films.png', 'BANI_VFX.png', 'El_Condenado.png','Rendering.png', 'El_Diente_Negro.png', 'Cucaracha.png'];
+  const SKINS = ['GB_Films.png', 'BANI_VFX.png', 'El_Condenado.png','Rendering.png', 'El_Diente_Negro.png', 'El_Sonido_Del_Viento.png', 'Cucaracha.png', 'Memento_Mori.png'];
 
   // ====== Juego / dificultad continua ======
   let running = false;
@@ -102,26 +110,67 @@
 
   // ====== Entidades ======
   const bucket = {
-    x: 0, y: 0, w: 110, h: 70, img: null,
-    draw() {
+    x: 0, y: 0, w: 110, h: 70,
+    imgFront: null,   // PNG frontal con diseño
+    imgBack:  null,   // PNG trasero (interior visible)
+  
+    load(name) {
+      // FRONT
+      const front = new Image();
+      front.src = `skins/${name}`;
+      front.onload  = () => this.imgFront = front;
+      front.onerror = () => this.imgFront = null;
+  
+      // BACK: intentamos "<skin>_back.png" y si falla, usamos DEFAULT_BACK_IMAGE
+      const base = String(name).replace(/\.png$/i, '');
+      const backCandidate = `skins/${base}_back.png`;
+  
+      const back = new Image();
+      back.onload  = () => this.imgBack = back;
+      back.onerror = () => {
+        if (DEFAULT_BACK_IMAGE) {
+          const fallback = new Image();
+          fallback.src = `skins/${DEFAULT_BACK_IMAGE}`;
+          fallback.onload  = () => this.imgBack = fallback;
+          fallback.onerror = () => this.imgBack = null;
+        } else {
+          this.imgBack = null;
+        }
+      };
+      back.src = backCandidate;
+    },
+  
+    // capa trasera (interior del balde)
+    drawBack() {
       const { x, y, w, h } = this;
-      if (this.img && this.img.complete) {
-        ctx.drawImage(this.img, x, y, w, h);
+      if (this.imgBack && this.imgBack.complete) {
+        ctx.drawImage(this.imgBack, x, y, w, h);
+      } else {
+        // fallback visual simple (interior)
+        ctx.fillStyle = '#101010';
+        ctx.fillRect(x, y + 6*DPI, w, h - 6*DPI);
+      }
+    },
+  
+    // capa frontal (diseño del balde)
+    drawFront() {
+      const { x, y, w, h } = this;
+      if (this.imgFront && this.imgFront.complete) {
+        ctx.drawImage(this.imgFront, x, y, w, h);
       } else {
         ctx.fillStyle = '#202020';
-        roundRect(ctx, x, y, w, h, 14, true, false);
+        ctx.fillRect(x, y, w, h);
         ctx.strokeStyle = '#444';
         ctx.lineWidth = 2 * DPI;
-        roundRect(ctx, x + 3 * DPI, y - 2 * DPI, w - 6 * DPI, h - 4 * DPI, 12, false, true);
+        ctx.strokeRect(x + 2*DPI, y + 2*DPI, w - 4*DPI, h - 4*DPI);
       }
     }
   };
+  
   function loadBucketSkin(name) {
-    const img = new Image();
-    img.src = `skins/${name}`;
-    img.onload = () => bucket.img = img;
-    img.onerror = () => bucket.img = null;
+    bucket.load(name);
   }
+  
   if (skinName) loadBucketSkin(skinName);
 
   // Imagen del pochoclo
@@ -187,27 +236,29 @@
     scheduleNextSpawn(startTime + 300); // primer spawn suave
   }
 
-  function intersectsBucket(ball, buck, frameFactor) {
-    // Boca del balde (subí/bajá MOUTH_OFFSET si la imagen tiene un borde superior grueso)
-    const mouthY = buck.y + MOUTH_OFFSET;
-  
-    // Banda vertical de captura: más gruesa si viene rápido (tunneling fix)
-    // frameFactor es (dt/16.67) que ya usás en update; asegura grosor suficiente aunque haya caída de fps
-    const bandY = Math.max(
-      BASE_CATCH_BAND,
-      (ball.vy * frameFactor) * CATCH_VY_SCALE
-    );
-  
-    // Tolerancia horizontal: el centro del pochoclo puede asomar unos px fuera
-    const left  = buck.x - CATCH_MARGIN_X;
-    const right = buck.x + buck.w + CATCH_MARGIN_X;
-  
-    const ballBottom = ball.y + ball.r;
-    const withinX = (ball.x >= left - ball.r) && (ball.x <= right + ball.r);
-    const withinY = (ballBottom >= mouthY) && (ballBottom <= mouthY + bandY);
-  
-    return withinX && withinY && ball.vy > 0;
-  }
+// Colisión: boca rectangular, bottom = y + h/8
+function intersectsBucket(ball, buck, frameFactor) {
+  // 1) Geometría de la boca
+  const mouthBottomY = buck.y + buck.h * 0.125; // 1/8 desde arriba
+  const bandH = Math.max(BASE_CATCH_H, Math.abs(ball.vy) * frameFactor * CATCH_VY_SCALE);
+  const ry = mouthBottomY - bandH;              // top del rect de captura
+
+  // 2) Ancho útil: recortamos un poquito a los lados (por PNG con bordes)
+  const insetX = Math.max(6 * DPI, 0.06 * buck.w); // 6% del ancho o 6px
+  const rx = buck.x + insetX;
+  const rw = buck.w - insetX * 2;
+
+  // 3) Circle vs AABB (usamos el punto inferior del círculo)
+  const cx = ball.x;
+  const cy = ball.y + ball.r;
+
+  const nx = Math.max(rx, Math.min(cx, rx + rw));
+  const ny = Math.max(ry, Math.min(cy, ry + bandH));
+  const dx = cx - nx, dy = cy - ny;
+
+  return (dx*dx + dy*dy) <= (ball.r * ball.r) && ball.vy > 0;
+}
+
 
 
   function showCatchBurst(x, y) {
@@ -254,6 +305,9 @@
       // Si hay dedo apoyado, seguí directo; si no, hacé easing suave
       bucket.x += (holding ? (target - bucket.x) : (target - bucket.x) * 0.25);
     }
+
+    // capa trasera del balde (interior)
+    bucket.drawBack();
 
 
     const f = (dt/16.67);
@@ -305,8 +359,8 @@
       popcorns = popcorns.filter(p => !p.dead);
     }
 
-    // bucket on top
-    bucket.draw();
+    // capa frontal del balde (diseño)
+    bucket.drawFront();
   }
 
   // ====== Leaderboard ======
