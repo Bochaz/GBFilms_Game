@@ -345,7 +345,7 @@
     const current = Array.from(skinSelect.options).map(o=>o.value);
     if (current.length === 0 && skinSelect.dataset.autofill === '1') {
       // ejemplo de autocompletar si querés; si no, poné tus <option> en el HTML
-      const SKINS = ['GB_Films.png','BANI_VFX.png'];
+      const SKINS = ['GB_Films.png', 'BANI_VFX.png', 'El_Condenado.png','Rendering.png', 'El_Diente_Negro.png', 'El_Sonido_Del_Viento.png', 'Cucaracha.png', 'Memento_Mori.png'];
       skinSelect.innerHTML = '';
       const ph = document.createElement('option');
       ph.value = ''; ph.textContent = 'Elegí un skin…'; ph.disabled = true; ph.selected = !skinName;
