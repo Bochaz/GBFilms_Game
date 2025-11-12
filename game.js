@@ -24,6 +24,13 @@
   const btnHome = document.getElementById('btnHome');
   const btnBoard2 = document.getElementById('btnBoard2');
 
+    // Colisión perdonadora (ajustables)
+  const CATCH_MARGIN_X = 12 * DPI;   // tolerancia horizontal extra
+  const MOUTH_OFFSET   = 6  * DPI;   // altura de la "boca" según tu PNG del balde
+  const BASE_CATCH_BAND = 18 * DPI;  // grosor mínimo de la banda de captura
+  const CATCH_VY_SCALE  = 1.3;       // cuánto crece la banda con la velocidad
+
+
   const boardTableBody = document.querySelector('#boardTable tbody');
 
   // ====== Estado de pantallas (failsafe) ======
@@ -180,12 +187,28 @@
     scheduleNextSpawn(startTime + 300); // primer spawn suave
   }
 
-  function intersectsBucket(ball, buck) {
-    const mouthY = buck.y + 8 * DPI;
-    const withinX = ball.x >= buck.x && ball.x <= buck.x + buck.w;
-    const touchingY = ball.y + ball.r >= mouthY && ball.y + ball.r <= mouthY + 18 * DPI;
-    return withinX && touchingY && ball.vy > 0;
+  function intersectsBucket(ball, buck, frameFactor) {
+    // Boca del balde (subí/bajá MOUTH_OFFSET si la imagen tiene un borde superior grueso)
+    const mouthY = buck.y + MOUTH_OFFSET;
+  
+    // Banda vertical de captura: más gruesa si viene rápido (tunneling fix)
+    // frameFactor es (dt/16.67) que ya usás en update; asegura grosor suficiente aunque haya caída de fps
+    const bandY = Math.max(
+      BASE_CATCH_BAND,
+      (ball.vy * frameFactor) * CATCH_VY_SCALE
+    );
+  
+    // Tolerancia horizontal: el centro del pochoclo puede asomar unos px fuera
+    const left  = buck.x - CATCH_MARGIN_X;
+    const right = buck.x + buck.w + CATCH_MARGIN_X;
+  
+    const ballBottom = ball.y + ball.r;
+    const withinX = (ball.x >= left - ball.r) && (ball.x <= right + ball.r);
+    const withinY = (ballBottom >= mouthY) && (ballBottom <= mouthY + bandY);
+  
+    return withinX && withinY && ball.vy > 0;
   }
+
 
   function showCatchBurst(x, y) {
     const p = { x, y, r: 2 * DPI, t: 0 };
@@ -226,10 +249,12 @@
     ctx.lineWidth = 2*DPI; ctx.strokeRect(2*DPI,2*DPI, canvas.width-4*DPI, canvas.height-4*DPI);
 
     // Mover bucket
-    if(pointerX!=null){
+    if (pointerX != null) {
       const target = clamp(pointerX - bucket.w/2, 4*DPI, canvas.width - bucket.w - 4*DPI);
-      bucket.x += (target - bucket.x) * 0.25;
+      // Si hay dedo apoyado, seguí directo; si no, hacé easing suave
+      bucket.x += (holding ? (target - bucket.x) : (target - bucket.x) * 0.25);
     }
+
 
     const f = (dt/16.67);
     const minX = 6*DPI;
@@ -257,7 +282,7 @@
       }
 
       // catch
-      if(!p.caught && intersectsBucket(p, bucket)){
+      if (!p.caught && intersectsBucket(p, bucket, f)) {
         p.caught = true;
         p.dead = true;
         score += 1; scoreEl.textContent = score;
