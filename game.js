@@ -347,27 +347,53 @@
 
   // ===== UI (selector de skins) =====
   function populateSkins() {
-    // Si ya tenés las <option> en el HTML, solo limpio labels
-    const current = Array.from(skinSelect.options).map(o=>o.value);
-    if (current.length === 0 && skinSelect.dataset.autofill === '1') {
-      // Autorelleno opcional (usa tus nombres tal cual, sin cambiarlos)
-      const SKINS = ['GB_Films.png', 'BANI_VFX.png', 'El_Condenado.png','Rendering.png', 'El_Diente_Negro.png', 'El_Sonido_Del_Viento.png', 'Cucaracha.png', 'Memento_Mori.png'];
-      skinSelect.innerHTML = '';
-      const ph = document.createElement('option');
-      ph.value = ''; ph.textContent = 'Elegí un skin…'; ph.disabled = true; ph.selected = !skinName;
-      skinSelect.appendChild(ph);
-      SKINS.forEach(n=>{
-        const opt=document.createElement('option'); opt.value=n; opt.textContent=n.replace(/\.png$/i,'');
-        if (n===skinName) opt.selected=true; skinSelect.appendChild(opt);
-      });
+    // 1) Intentamos leer la lista desde el HTML: data-skins="a.png,b.png,c.png"
+    const fromAttr = (skinSelect.dataset.skins || "")
+      .split(",")
+      .map(s => s.trim())
+      .filter(Boolean);
+  
+    // 2) Si ya hay <option> en el HTML, sólo limpiamos las labels (quitar ".png").
+    //    Si no hay options y tenemos fromAttr, poblamos dinámicamente.
+    const hadOptions = skinSelect.options.length > 0;
+  
+    // Siempre arrancamos dejando un placeholder primero
+    skinSelect.innerHTML = "";
+    const ph = document.createElement('option');
+    ph.value = "";
+    ph.textContent = "Elegí un skin…";
+    ph.disabled = true;
+    ph.selected = !skinName; // si no hay skin guardada, queda de placeholder
+    skinSelect.appendChild(ph);
+  
+    let names = [];
+    if (hadOptions) {
+      // Tomamos los values existentes del HTML (sin tocar nombres)
+      names = Array.from(skinSelect.options).slice(1).map(o => o.value).filter(Boolean);
+    } else if (fromAttr.length) {
+      names = fromAttr;
     } else {
-      // limpiar labels de las options existentes (solo quito .png del texto)
-      Array.from(skinSelect.options).forEach(opt=>{
-        if (opt.value) opt.textContent = opt.value.replace(/\.png$/i,'');
-      });
-      if (!skinSelect.value) skinSelect.selectedIndex = 0;
+      // No hay options en HTML ni data-skins -> no podemos adivinar los archivos
+      // Dejar sólo el placeholder y salir (el usuario verá la lista vacía)
+      return;
+    }
+  
+    // Rellenar opciones con labels sin ".png"
+    names.forEach(n => {
+      const opt = document.createElement('option');
+      opt.value = n;
+      opt.textContent = n.replace(/\.png$/i, "");
+      // Si tenías una skin guardada en localStorage, la dejamos seleccionada
+      if (n === skinName) opt.selected = true;
+      skinSelect.appendChild(opt);
+    });
+  
+    // Si no había skin previa, no selecciones la primera real: que obligue a elegir
+    if (!skinName) {
+      skinSelect.selectedIndex = 0; // placeholder
     }
   }
+
   populateSkins();
 
   // setear nombre guardado (si había)
