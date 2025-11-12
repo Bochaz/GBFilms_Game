@@ -6,29 +6,28 @@
   const ctx = canvas.getContext('2d');
   const DPI = Math.min(window.devicePixelRatio || 1, 2);
 
-  const scoreEl = document.getElementById('score');
-  const screenStart = document.getElementById('screen-start');
-  const screenBoard = document.getElementById('screen-board');
-  const screenOver  = document.getElementById('screen-over');
+  const scoreEl      = document.getElementById('score');
+  const screenStart  = document.getElementById('screen-start');
+  const screenBoard  = document.getElementById('screen-board');
+  const screenOver   = document.getElementById('screen-over');
   const finalScoreEl = document.getElementById('finalScore');
   const saveStatusEl = document.getElementById('saveStatus');
-  const toastEl = document.getElementById('toast');
-  const hintEl  = document.getElementById('hint');
+  const toastEl      = document.getElementById('toast');
+  const hintEl       = document.getElementById('hint');
 
   const playerNameInput = document.getElementById('playerName');
-  const skinSelect = document.getElementById('skinSelect');
-  const btnPlay = document.getElementById('btnPlay');
-  const btnBoard = document.getElementById('btnBoard');
-  const btnBack = document.getElementById('btnBack');
+  const skinSelect      = document.getElementById('skinSelect');
+  const btnPlay   = document.getElementById('btnPlay');
+  const btnBoard  = document.getElementById('btnBoard');
+  const btnBack   = document.getElementById('btnBack');
   const btnReplay = document.getElementById('btnReplay');
-  const btnHome = document.getElementById('btnHome');
+  const btnHome   = document.getElementById('btnHome');
   const btnBoard2 = document.getElementById('btnBoard2');
 
-  // Imagen trasera común a todas las skins
-  const BACK_IMAGE_FILE = 'bucket_back.png'; // poné este PNG en /skins/
-
-
   const boardTableBody = document.querySelector('#boardTable tbody');
+
+  // Imagen trasera común a todas las skins (colocá este archivo en /skins/)
+  const BACK_IMAGE_FILE = 'bucket_back.png';
 
   // ===== UI fail-safe =====
   function show(el){ el.hidden=false; el.style.display='grid'; }
@@ -73,42 +72,47 @@
   const sleep = (ms)=> new Promise(r => setTimeout(r, ms));
 
   // ===== Balde cuadrado + capas =====
-  // Colisión rectangular con boca a 1/8 desde arriba
-  const BASE_CATCH_H   = 22 * DPI;   // alto mínimo banda captura
-  const CATCH_VY_SCALE = 1.2;        // factor por velocidad
-  const INSET_X_RATIO  = 0.06;       // recorte lateral 6% (para que coincida con PNG)
-  const BUCKET_SIZE    = 120 * DPI;  // tamaño cuadrado base (w=h)
+  const BUCKET_SIZE    = 120 * DPI; // w=h (escalable)
+  const BASE_CATCH_H   = 22 * DPI;  // alto mínimo banda de captura
+  const CATCH_VY_SCALE = 1.2;       // banda crece con la velocidad (anti-tunneling)
+  const INSET_X_RATIO  = 0.06;      // recorte lateral (6% del ancho útil)
 
   const bucket = {
     x: 0, y: 0, w: BUCKET_SIZE, h: BUCKET_SIZE,
-    imgFront: null, // cambia por skin
-    // la back es global, no por bucket
-    drawBack() {
+    imgFront: null,        // PNG de skin elegida
+    drawBack() {           // interior común
       if (window.bucketBackImg && window.bucketBackImg.complete) {
         ctx.drawImage(window.bucketBackImg, this.x, this.y, this.w, this.h);
       }
-      // si no cargó: no dibuja (transparente)
+      // si no cargó: transparente
     },
-    drawFront() {
+    drawFront() {          // diseño frontal de la skin
       if (this.imgFront && this.imgFront.complete) {
         ctx.drawImage(this.imgFront, this.x, this.y, this.w, this.h);
       }
       // si no hay front: transparente
     }
   };
-  
+
   function loadBucketSkin(name) {
     const front = new Image();
     front.src = `skins/${name}`;
     front.onload  = () => bucket.imgFront = front;
     front.onerror = () => bucket.imgFront = null;
   }
-  
-  // Cargar UNA sola vez la parte trasera común
+
+  // Cargar back común una sola vez
   if (!window.bucketBackImg) {
     window.bucketBackImg = new Image();
     window.bucketBackImg.src = `skins/${BACK_IMAGE_FILE}`;
     window.bucketBackImg.onerror = () => { window.bucketBackImg = null; };
+  }
+  if (skinName) loadBucketSkin(skinName);
+
+  // ===== Pochoclo (imagen) =====
+  if (!window.popcornImg) {
+    window.popcornImg = new Image();
+    window.popcornImg.src = "skins/Pochoclo.png"; // tu PNG del pochoclo
   }
 
   // ===== Input =====
@@ -132,7 +136,7 @@
   // ===== Core =====
   function placeBucket() {
     bucket.w = BUCKET_SIZE;
-    bucket.h = BUCKET_SIZE;             // ← cuadrado
+    bucket.h = BUCKET_SIZE;             // cuadrado
     bucket.x = (canvas.width - bucket.w) / 2;
     bucket.y = canvas.height - bucket.h - 20 * DPI;
   }
@@ -148,7 +152,7 @@
       caught: false,
       dead: false
     };
-    // tu vx personalizada (dejó un ejemplo; ajustá a gusto)
+    // Tu vx puede ser custom; dejo un rango con leve boost temporal
     const vxBase  = 2 + Math.random()*6;
     const vxBoost = 1 + Math.min(0.35, 0.08 * Math.log1p(tSec));
     p.vx = (Math.random()<0.5?-1:1) * (vxBase * vxBoost) * DPI;
@@ -170,7 +174,7 @@
     scheduleNextSpawn(startTime + 300);
   }
 
-  // Boca rectangular (bottom = y + h/8)
+  // Colisión rectangular (boca bottom = y + h/8)
   function intersectsBucket(ball, buck, frameFactor) {
     const mouthBottomY = buck.y + buck.h * 0.125; // 1/8 desde arriba
     const bandH = Math.max(BASE_CATCH_H, Math.abs(ball.vy) * frameFactor * CATCH_VY_SCALE);
@@ -229,7 +233,7 @@
       bucket.x += (holding ? (target - bucket.x) : (target - bucket.x) * 0.25);
     }
 
-    // capa trasera del balde (interior). Si no hay PNG back, no dibuja (transparente)
+    // capa trasera del balde (interior)
     bucket.drawBack();
 
     // update/draw pochoclos
@@ -267,14 +271,14 @@
       }
     }
 
-    // limpieza
-    if (popcorns.length > 120) popcorns = popcorns.filter(p => !p.dead);
+    // limpieza defensiva
+    if (popcorns.length > 150) popcorns = popcorns.filter(p => !p.dead);
 
-    // capa frontal del balde (diseño). Si no hay PNG front, queda transparente
+    // capa frontal del balde (diseño)
     bucket.drawFront();
   }
 
-  // ===== Leaderboard =====
+  // ===== Leaderboard (lectura simple, ordenado) =====
   async function loadLeaderboard() {
     boardTableBody.innerHTML = '<tr><td colspan="4">Cargando…</td></tr>';
     try {
@@ -303,7 +307,10 @@
   async function saveScore(name, score) {
     const MAX_RETRIES = 5;
     let attempt = 0;
+
+    // jitter para desincronizar avalanchas
     await sleep(Math.random() * 250);
+
     while (attempt < MAX_RETRIES) {
       attempt++;
       let data;
@@ -338,13 +345,12 @@
   }
   function updatePlayEnabled() { btnPlay.disabled = !isFormValid(); }
 
-  // ===== UI =====
+  // ===== UI (selector de skins) =====
   function populateSkins() {
-    // Si ya tenés tu lista en HTML, podés omitir esto.
-    // Acá solo me aseguro de que muestre nombres sin ".png".
+    // Si ya tenés las <option> en el HTML, solo limpio labels
     const current = Array.from(skinSelect.options).map(o=>o.value);
     if (current.length === 0 && skinSelect.dataset.autofill === '1') {
-      // ejemplo de autocompletar si querés; si no, poné tus <option> en el HTML
+      // Autorelleno opcional (usa tus nombres tal cual, sin cambiarlos)
       const SKINS = ['GB_Films.png', 'BANI_VFX.png', 'El_Condenado.png','Rendering.png', 'El_Diente_Negro.png', 'El_Sonido_Del_Viento.png', 'Cucaracha.png', 'Memento_Mori.png'];
       skinSelect.innerHTML = '';
       const ph = document.createElement('option');
@@ -355,7 +361,7 @@
         if (n===skinName) opt.selected=true; skinSelect.appendChild(opt);
       });
     } else {
-      // limpiar labels de las options existentes
+      // limpiar labels de las options existentes (solo quito .png del texto)
       Array.from(skinSelect.options).forEach(opt=>{
         if (opt.value) opt.textContent = opt.value.replace(/\.png$/i,'');
       });
@@ -364,8 +370,10 @@
   }
   populateSkins();
 
+  // setear nombre guardado (si había)
   playerNameInput.value = playerName;
 
+  // Eventos inputs
   playerNameInput.addEventListener('input', () => {
     playerName = playerNameInput.value.trim();
     updatePlayEnabled();
@@ -377,6 +385,7 @@
     updatePlayEnabled();
   });
 
+  // Botones
   btnPlay.addEventListener('click', () => {
     if (!isFormValid()) { showToast('Completá tu nombre y elegí una skin.'); updatePlayEnabled(); return; }
     playerName = playerNameInput.value.trim();
