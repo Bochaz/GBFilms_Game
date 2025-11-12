@@ -24,54 +24,37 @@
   const btnHome = document.getElementById('btnHome');
   const btnBoard2 = document.getElementById('btnBoard2');
 
-  // Colisión perdonadora (ajustables)
-  const CATCH_MARGIN_X = 12 * DPI;   // tolerancia horizontal extra
-  const BASE_CATCH_BAND = 18 * DPI;  // grosor mínimo de la banda de captura
+  // Imagen trasera común a todas las skins
+  const BACK_IMAGE_FILE = 'bucket_back.png'; // poné este PNG en /skins/
 
-  // ===== Colisión cuadrada y rendering en capas =====
-  const MOUTH_OFFSET     = 10 * DPI;   // desde el top del balde hasta la “boca”
-  const CATCH_INSET_X    = 8  * DPI;   // achica un poco el ancho para que coincida con la abertura
-  
-  const BASE_CATCH_H     = 22 * DPI;   // alto mínimo de la banda de captura
-  const CATCH_VY_SCALE   = 1.2;        // aumenta la banda según velocidad vertical (anti-tunneling)
-  
-  // Imagen trasera por defecto si no hay una específica para la skin
-  const DEFAULT_BACK_IMAGE = 'bucket-back.png'; // poné este PNG en /skins si querés fallback
 
-  
   const boardTableBody = document.querySelector('#boardTable tbody');
 
-  // ====== Estado de pantallas (failsafe) ======
+  // ===== UI fail-safe =====
   function show(el){ el.hidden=false; el.style.display='grid'; }
   function hide(el){ el.hidden=true;  el.style.display='none'; }
   show(screenStart); hide(screenBoard); hide(screenOver);
 
-  // ====== Skins del balde ======
-  const SKINS = ['GB_Films.png', 'BANI_VFX.png', 'El_Condenado.png','Rendering.png', 'El_Diente_Negro.png', 'El_Sonido_Del_Viento.png', 'Cucaracha.png', 'Memento_Mori.png'];
-
-  // ====== Juego / dificultad continua ======
+  // ===== Config juego (spawn y gravedad continua) =====
   let running = false;
   let score = 0;
   let startTime = 0;
 
-  // Spawning continuo (cada vez más seguido)
-  let spawnDelay0 = 1400;             // delay base inicial (ms)
-  const minSpawnDelayHardFloor = 120; // piso durísimo
-  const SPAWN_ACCEL = 0.035;          // ↑ para acelerar más rápido
+  let spawnDelay0 = 1400;              // ms inicio
+  const minSpawnDelayHardFloor = 120;  // ms piso
+  const SPAWN_ACCEL = 0.035;           // ↑ para acelerar más rápido
 
-  // Gravedad creciente sin tope
   const G_BASE = 0.32;
-  const G_GROW_RATE = 0.006;          // ↑ para caer más rápido con el tiempo
+  const G_GROW_RATE = 0.006;           // ↑ para caer más rápido con el tiempo
 
-  // Múltiples pochoclos simultáneos
   let popcorns = [];
   let nextSpawnAt = 0;
 
-  // ====== Preferencias usuario ======
+  // ===== Usuario =====
   let playerName = (localStorage.getItem('gb_player_name') || '').trim();
   let skinName   = localStorage.getItem('gb_skin') || ''; // sin skin por defecto
 
-  // ====== Canvas scaling ======
+  // ===== Canvas scaling =====
   function fitCanvas() {
     const rect = canvas.getBoundingClientRect();
     canvas.width  = Math.round(rect.width * DPI);
@@ -80,106 +63,55 @@
   fitCanvas();
   addEventListener('resize', fitCanvas);
 
-  // ====== Utils ======
-  function clamp(v, min, max) { return Math.max(min, Math.min(max, v)); }
+  // ===== Utils =====
+  const clamp = (v,min,max)=> Math.max(min, Math.min(max, v));
   function escapeHtml(s) {
     return String(s).replace(/[&<>\"']/g, m => ({
       "&": "&amp;", "<": "&lt;", ">": "&gt;", "\"": "&quot;", "'": "&#39;"
     }[m]));
   }
-  function roundRect(ctx, x, y, w, h, r, fill, stroke) {
-    if (typeof r === 'number') r = { tl: r, tr: r, br: r, bl: r };
-    ctx.beginPath();
-    ctx.moveTo(x + r.tl, y);
-    ctx.lineTo(x + w - r.tr, y);
-    ctx.quadraticCurveTo(x + w, y, x + w, y + r.tr);
-    ctx.lineTo(x + w, y + h - r.br);
-    ctx.quadraticCurveTo(x + w, y + h, x + w - r.br, y + h);
-    ctx.lineTo(x + r.bl, y + h);
-    ctx.quadraticCurveTo(x, y + h, x, y + h - r.bl);
-    ctx.lineTo(x, y + r.tl);
-    ctx.quadraticCurveTo(x, y, x + r.tl, y);
-    if (fill) ctx.fill();
-    if (stroke) ctx.stroke();
-  }
-  function showToast(msg, ms = 2000) {
-    toastEl.textContent = msg;
-    toastEl.hidden = false;
-    setTimeout(() => toastEl.hidden = true, ms);
-  }
+  const sleep = (ms)=> new Promise(r => setTimeout(r, ms));
 
-  // ====== Entidades ======
+  // ===== Balde cuadrado + capas =====
+  // Colisión rectangular con boca a 1/8 desde arriba
+  const BASE_CATCH_H   = 22 * DPI;   // alto mínimo banda captura
+  const CATCH_VY_SCALE = 1.2;        // factor por velocidad
+  const INSET_X_RATIO  = 0.06;       // recorte lateral 6% (para que coincida con PNG)
+  const BUCKET_SIZE    = 120 * DPI;  // tamaño cuadrado base (w=h)
+
   const bucket = {
-    x: 0, y: 0, w: 110, h: 70,
-    imgFront: null,   // PNG frontal con diseño
-    imgBack:  null,   // PNG trasero (interior visible)
-  
-    load(name) {
-      // FRONT
-      const front = new Image();
-      front.src = `skins/${name}`;
-      front.onload  = () => this.imgFront = front;
-      front.onerror = () => this.imgFront = null;
-  
-      // BACK: intentamos "<skin>_back.png" y si falla, usamos DEFAULT_BACK_IMAGE
-      const base = String(name).replace(/\.png$/i, '');
-      const backCandidate = `skins/${base}_back.png`;
-  
-      const back = new Image();
-      back.onload  = () => this.imgBack = back;
-      back.onerror = () => {
-        if (DEFAULT_BACK_IMAGE) {
-          const fallback = new Image();
-          fallback.src = `skins/${DEFAULT_BACK_IMAGE}`;
-          fallback.onload  = () => this.imgBack = fallback;
-          fallback.onerror = () => this.imgBack = null;
-        } else {
-          this.imgBack = null;
-        }
-      };
-      back.src = backCandidate;
-    },
-  
-    // capa trasera (interior del balde)
+    x: 0, y: 0, w: BUCKET_SIZE, h: BUCKET_SIZE,
+    imgFront: null, // cambia por skin
+    // la back es global, no por bucket
     drawBack() {
-      const { x, y, w, h } = this;
-      if (this.imgBack && this.imgBack.complete) {
-        ctx.drawImage(this.imgBack, x, y, w, h);
-      } else {
-        // fallback visual simple (interior)
-        ctx.fillStyle = '#101010';
-        ctx.fillRect(x, y + 6*DPI, w, h - 6*DPI);
+      if (window.bucketBackImg && window.bucketBackImg.complete) {
+        ctx.drawImage(window.bucketBackImg, this.x, this.y, this.w, this.h);
       }
+      // si no cargó: no dibuja (transparente)
     },
-  
-    // capa frontal (diseño del balde)
     drawFront() {
-      const { x, y, w, h } = this;
       if (this.imgFront && this.imgFront.complete) {
-        ctx.drawImage(this.imgFront, x, y, w, h);
-      } else {
-        ctx.fillStyle = '#202020';
-        ctx.fillRect(x, y, w, h);
-        ctx.strokeStyle = '#444';
-        ctx.lineWidth = 2 * DPI;
-        ctx.strokeRect(x + 2*DPI, y + 2*DPI, w - 4*DPI, h - 4*DPI);
+        ctx.drawImage(this.imgFront, this.x, this.y, this.w, this.h);
       }
+      // si no hay front: transparente
     }
   };
   
   function loadBucketSkin(name) {
-    bucket.load(name);
+    const front = new Image();
+    front.src = `skins/${name}`;
+    front.onload  = () => bucket.imgFront = front;
+    front.onerror = () => bucket.imgFront = null;
   }
   
-  if (skinName) loadBucketSkin(skinName);
-
-  // Imagen del pochoclo
-  if (!window.popcornImg) {
-    window.popcornImg = new Image();
-    window.popcornImg.src = "skins/Pochoclo.png";
+  // Cargar UNA sola vez la parte trasera común
+  if (!window.bucketBackImg) {
+    window.bucketBackImg = new Image();
+    window.bucketBackImg.src = `skins/${BACK_IMAGE_FILE}`;
+    window.bucketBackImg.onerror = () => { window.bucketBackImg = null; };
   }
 
-  // ====== Input ======
+  // ===== Input =====
   let pointerX = null, holding = false;
   function setPointerFromEvent(e) {
     const rect = canvas.getBoundingClientRect();
@@ -197,9 +129,10 @@
   canvas.addEventListener('touchmove', e => { if (holding) setPointerFromEvent(e); });
   addEventListener('touchend', () => { holding = false; });
 
-  // ====== Juego core ======
+  // ===== Core =====
   function placeBucket() {
-    bucket.w = 120 * DPI; bucket.h = 80 * DPI;
+    bucket.w = BUCKET_SIZE;
+    bucket.h = BUCKET_SIZE;             // ← cuadrado
     bucket.x = (canvas.width - bucket.w) / 2;
     bucket.y = canvas.height - bucket.h - 20 * DPI;
   }
@@ -215,8 +148,9 @@
       caught: false,
       dead: false
     };
-    const vxBase = 2 + Math.random()*6;
-    const vxBoost = 1 + Math.min(0.35, 0.08 * Math.log1p(tSec)); // hasta +35%
+    // tu vx personalizada (dejó un ejemplo; ajustá a gusto)
+    const vxBase  = 2 + Math.random()*6;
+    const vxBoost = 1 + Math.min(0.35, 0.08 * Math.log1p(tSec));
     p.vx = (Math.random()<0.5?-1:1) * (vxBase * vxBoost) * DPI;
     p.vy = 0.35 * DPI;
     return p;
@@ -233,33 +167,29 @@
     startTime = performance.now();
     placeBucket();
     popcorns = [];
-    scheduleNextSpawn(startTime + 300); // primer spawn suave
+    scheduleNextSpawn(startTime + 300);
   }
 
-// Colisión: boca rectangular, bottom = y + h/8
-function intersectsBucket(ball, buck, frameFactor) {
-  // 1) Geometría de la boca
-  const mouthBottomY = buck.y + buck.h * 0.125; // 1/8 desde arriba
-  const bandH = Math.max(BASE_CATCH_H, Math.abs(ball.vy) * frameFactor * CATCH_VY_SCALE);
-  const ry = mouthBottomY - bandH;              // top del rect de captura
+  // Boca rectangular (bottom = y + h/8)
+  function intersectsBucket(ball, buck, frameFactor) {
+    const mouthBottomY = buck.y + buck.h * 0.125; // 1/8 desde arriba
+    const bandH = Math.max(BASE_CATCH_H, Math.abs(ball.vy) * frameFactor * CATCH_VY_SCALE);
+    const ry = mouthBottomY - bandH;
 
-  // 2) Ancho útil: recortamos un poquito a los lados (por PNG con bordes)
-  const insetX = Math.max(6 * DPI, 0.06 * buck.w); // 6% del ancho o 6px
-  const rx = buck.x + insetX;
-  const rw = buck.w - insetX * 2;
+    const insetX = Math.max(6 * DPI, INSET_X_RATIO * buck.w); // recorte lateral
+    const rx = buck.x + insetX;
+    const rw = buck.w - insetX * 2;
 
-  // 3) Circle vs AABB (usamos el punto inferior del círculo)
-  const cx = ball.x;
-  const cy = ball.y + ball.r;
+    // circle vs AABB usando el punto inferior del círculo
+    const cx = ball.x;
+    const cy = ball.y + ball.r;
 
-  const nx = Math.max(rx, Math.min(cx, rx + rw));
-  const ny = Math.max(ry, Math.min(cy, ry + bandH));
-  const dx = cx - nx, dy = cy - ny;
+    const nx = Math.max(rx, Math.min(cx, rx + rw));
+    const ny = Math.max(ry, Math.min(cy, ry + bandH));
+    const dx = cx - nx, dy = cy - ny;
 
-  return (dx*dx + dy*dy) <= (ball.r * ball.r) && ball.vy > 0;
-}
-
-
+    return (dx*dx + dy*dy) <= (ball.r * ball.r) && ball.vy > 0;
+  }
 
   function showCatchBurst(x, y) {
     const p = { x, y, r: 2 * DPI, t: 0 };
@@ -282,40 +212,30 @@ function intersectsBucket(ball, buck, frameFactor) {
     const dt = Math.min(40, ts - lastTs);
     lastTs = ts;
 
-    // Dificultad continua
     const tSec = Math.max(0, (ts - startTime) / 1000);
     const G = (G_BASE + G_GROW_RATE * tSec) * DPI;
 
-    // Spawning continuo (puede haber muchos simultáneos)
-    if (ts >= nextSpawnAt) {
-      popcorns.push(newPopcorn(ts));
-      scheduleNextSpawn(ts);
-      // Si querés rigor ante frames largos, podés repetir spawn en un while con límite
-      // for (let i=0;i<3 && ts>=nextSpawnAt;i++){ popcorns.push(newPopcorn(ts)); scheduleNextSpawn(ts); }
-    }
+    // spawn continuo
+    if (ts >= nextSpawnAt) { popcorns.push(newPopcorn(ts)); scheduleNextSpawn(ts); }
 
-    // Render base
+    // fondo simple
     ctx.clearRect(0,0,canvas.width,canvas.height);
     ctx.strokeStyle = 'rgba(255,255,255,.06)';
     ctx.lineWidth = 2*DPI; ctx.strokeRect(2*DPI,2*DPI, canvas.width-4*DPI, canvas.height-4*DPI);
 
-    // Mover bucket
+    // mover bucket (directo si hay dedo; easing si no)
     if (pointerX != null) {
       const target = clamp(pointerX - bucket.w/2, 4*DPI, canvas.width - bucket.w - 4*DPI);
-      // Si hay dedo apoyado, seguí directo; si no, hacé easing suave
       bucket.x += (holding ? (target - bucket.x) : (target - bucket.x) * 0.25);
     }
 
-    // capa trasera del balde (interior)
+    // capa trasera del balde (interior). Si no hay PNG back, no dibuja (transparente)
     bucket.drawBack();
 
-
+    // update/draw pochoclos
     const f = (dt/16.67);
-    const minX = 6*DPI;
-    const maxX = canvas.width - 6*DPI;
-    const floorY = canvas.height - 8*DPI;
+    const minX = 6*DPI, maxX = canvas.width - 6*DPI, floorY = canvas.height - 8*DPI;
 
-    // Actualizar y dibujar cada pochoclo
     for (let p of popcorns) {
       if (p.dead) continue;
 
@@ -323,19 +243,13 @@ function intersectsBucket(ball, buck, frameFactor) {
       p.x  += p.vx * f;
       p.y  += p.vy * f;
 
-      // paredes
       const leftBound  = minX + p.r;
       const rightBound = maxX - p.r;
       if(p.x < leftBound){ p.x = leftBound; p.vx *= -0.98; }
       if(p.x > rightBound){ p.x = rightBound; p.vx *= -0.98; }
 
-      // piso => game over
-      if(p.y + p.r >= floorY){
-        gameOver();
-        return;
-      }
+      if(p.y + p.r >= floorY){ gameOver(); return; }
 
-      // catch
       if (!p.caught && intersectsBucket(p, bucket, f)) {
         p.caught = true;
         p.dead = true;
@@ -343,7 +257,6 @@ function intersectsBucket(ball, buck, frameFactor) {
         showCatchBurst(p.x, bucket.y);
       }
 
-      // dibujar (imagen si carga, si no círculo)
       if (window.popcornImg.complete && window.popcornImg.naturalWidth > 0) {
         const size = p.r * 2;
         ctx.drawImage(window.popcornImg, p.x - p.r, p.y - p.r, size, size);
@@ -354,16 +267,14 @@ function intersectsBucket(ball, buck, frameFactor) {
       }
     }
 
-    // limpiar pochoclos “muertos”
-    if (popcorns.length && (popcorns.length > 50 || (tSec>10 && popcorns.length>0))) {
-      popcorns = popcorns.filter(p => !p.dead);
-    }
+    // limpieza
+    if (popcorns.length > 120) popcorns = popcorns.filter(p => !p.dead);
 
-    // capa frontal del balde (diseño)
+    // capa frontal del balde (diseño). Si no hay PNG front, queda transparente
     bucket.drawFront();
   }
 
-  // ====== Leaderboard ======
+  // ===== Leaderboard =====
   async function loadLeaderboard() {
     boardTableBody.innerHTML = '<tr><td colspan="4">Cargando…</td></tr>';
     try {
@@ -388,91 +299,68 @@ function intersectsBucket(ball, buck, frameFactor) {
     }
   }
 
-  // util
-  const sleep = (ms)=> new Promise(r => setTimeout(r, ms));
-  
+  // ===== Guardado robusto (merge + retries) =====
   async function saveScore(name, score) {
     const MAX_RETRIES = 5;
     let attempt = 0;
-  
-    // Pequeño jitter aleatorio para desincronizar avalanchas
     await sleep(Math.random() * 250);
-  
     while (attempt < MAX_RETRIES) {
       attempt++;
-  
-      // 1) Leer lo último
       let data;
-      try {
-        data = await jsonbinRead();
-      } catch (e) {
-        if (attempt === MAX_RETRIES) throw e;
-        await sleep(200 * attempt);
-        continue;
-      }
-  
-      // 2) Merge: añadí el nuevo score sin perder los existentes
+      try { data = await jsonbinRead(); }
+      catch (e) { if (attempt===MAX_RETRIES) throw e; await sleep(200*attempt); continue; }
+
       const existing = Array.isArray(data?.scores) ? data.scores.slice() : [];
       existing.push({ name, score, ts: Date.now() });
-  
-      // 3) Recortar para no crecer infinito (ej: 1000 últimos)
       while (existing.length > 1000) existing.shift();
-  
-      // 4) Intentar escribir
-      try {
-        await jsonbinWrite({ scores: existing });
-      } catch (e) {
-        // fallo al escribir: backoff y reintento
-        if (attempt === MAX_RETRIES) throw e;
-        await sleep(250 * attempt);
-        continue;
-      }
-  
-      // 5) Verificación: re-leer y chequear que nuestro score quedó
+
+      try { await jsonbinWrite({ scores: existing }); }
+      catch (e) { if (attempt===MAX_RETRIES) throw e; await sleep(250*attempt); continue; }
+
       try {
         const verify = await jsonbinRead();
-        const ok = Array.isArray(verify?.scores) &&
-                   verify.scores.some(s => s.name === name && s.score === score);
-        if (ok) return; // éxito
-  
-        // Si no quedó, backoff y reintento (hará otro merge con lo más nuevo)
-        if (attempt === MAX_RETRIES) throw new Error('Race write lost after retries');
-        await sleep(300 * attempt);
+        const ok = Array.isArray(verify?.scores) && verify.scores.some(s => s.name===name && s.score===score);
+        if (ok) return;
+        if (attempt===MAX_RETRIES) throw new Error('Race write lost after retries');
+        await sleep(300*attempt);
       } catch (e) {
-        if (attempt === MAX_RETRIES) throw e;
-        await sleep(300 * attempt);
+        if (attempt===MAX_RETRIES) throw e;
+        await sleep(300*attempt);
       }
     }
   }
 
-
-  // ====== Validación nombre + skin ======
+  // ===== Validación nombre + skin =====
   function isFormValid() {
     const nameOk = (playerNameInput.value.trim().length >= 1);
     const skinOk  = (skinSelect.value && skinSelect.value.length > 0);
     return nameOk && skinOk;
   }
-  function updatePlayEnabled() {
-    btnPlay.disabled = !isFormValid();
-  }
+  function updatePlayEnabled() { btnPlay.disabled = !isFormValid(); }
 
-  // ====== UI ======
+  // ===== UI =====
   function populateSkins() {
-    skinSelect.innerHTML = '';
-    const ph = document.createElement('option');
-    ph.value = '';
-    ph.textContent = 'Elegí un skin…';
-    ph.disabled = true;
-    ph.selected = !skinName;
-    skinSelect.appendChild(ph);
-
-    SKINS.forEach(n => {
-      const opt = document.createElement('option');
-      opt.value = n;
-      opt.textContent = n.replace(/\.png$/i, '');
-      if (n === skinName) opt.selected = true;
-      skinSelect.appendChild(opt);
-    });
+    // Si ya tenés tu lista en HTML, podés omitir esto.
+    // Acá solo me aseguro de que muestre nombres sin ".png".
+    const current = Array.from(skinSelect.options).map(o=>o.value);
+    if (current.length === 0 && skinSelect.dataset.autofill === '1') {
+      // ejemplo de autocompletar si querés; si no, poné tus <option> en el HTML
+      const SKINS = ['GB_Films.png','BANI_VFX.png'];
+      skinSelect.innerHTML = '';
+      const ph = document.createElement('option');
+      ph.value = ''; ph.textContent = 'Elegí un skin…'; ph.disabled = true; ph.selected = !skinName;
+      skinSelect.appendChild(ph);
+      SKINS.forEach(n=>{
+        const opt=document.createElement('option'); opt.value=n; opt.textContent=n.replace(/\.png$/i,'');
+        if (n===skinName) opt.selected=true; skinSelect.appendChild(opt);
+      });
+    } else {
+      // limpiar labels de las options existentes
+      Array.from(skinSelect.options).forEach(opt=>{
+        if (opt.value) opt.textContent = opt.value.replace(/\.png$/i,'');
+      });
+      if (!skinSelect.value) skinSelect.selectedIndex = 0;
+    }
   }
   populateSkins();
 
@@ -490,11 +378,7 @@ function intersectsBucket(ball, buck, frameFactor) {
   });
 
   btnPlay.addEventListener('click', () => {
-    if (!isFormValid()) {
-      showToast('Completá tu nombre y elegí una skin.');
-      updatePlayEnabled();
-      return;
-    }
+    if (!isFormValid()) { showToast('Completá tu nombre y elegí una skin.'); updatePlayEnabled(); return; }
     playerName = playerNameInput.value.trim();
     localStorage.setItem('gb_player_name', playerName);
     showGame();
@@ -505,40 +389,22 @@ function intersectsBucket(ball, buck, frameFactor) {
   btnHome.addEventListener('click', showStart);
   btnBoard2.addEventListener('click', showBoard);
 
-  // ====== Flow de pantallas ======
+  // ===== Flow =====
   function showStart() {
-    running = false;
-    hide(screenOver);
-    hide(screenBoard);
-    show(screenStart);
-    hintEl.style.opacity = 0.7;
-    updatePlayEnabled();
+    running = false; hide(screenOver); hide(screenBoard); show(screenStart);
+    hintEl.style.opacity = 0.7; updatePlayEnabled();
   }
   function showBoard() {
-    running = false;
-    hide(screenStart);
-    hide(screenOver);
-    show(screenBoard);
-    loadLeaderboard();
+    running = false; hide(screenStart); hide(screenOver); show(screenBoard); loadLeaderboard();
   }
   function showGame(){
-    hide(screenStart);
-    hide(screenBoard);
-    hide(screenOver);
-    resetGame();
-    running = true;
-    lastTs = performance.now();
+    hide(screenStart); hide(screenBoard); hide(screenOver);
+    resetGame(); running = true; lastTs = performance.now();
     requestAnimationFrame(update);
     setTimeout(()=> hintEl.style.opacity = 0, 2000);
   }
-  function showOver() { 
-    running = false; 
-    hide(screenStart);
-    hide(screenBoard);
-    show(screenOver);
-  }
+  function showOver() { running = false; hide(screenStart); hide(screenBoard); show(screenOver); }
 
-  // ====== Game over ======
   async function gameOver() {
     finalScoreEl.textContent = score;
     showOver();
@@ -553,7 +419,7 @@ function intersectsBucket(ball, buck, frameFactor) {
     }
   }
 
-  // ====== Init ======
+  // Init
   showStart();
   placeBucket();
   updatePlayEnabled();
